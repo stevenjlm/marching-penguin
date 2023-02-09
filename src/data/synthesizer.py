@@ -49,6 +49,7 @@ class LinearSingleStepMultiMachine:
 
 class OptLinearSingleStepMultiMachine:
     DEL_T = np.timedelta64(3, 'D')
+    COLUMNS = ["volt", "rotate", "vibration", "pressure"]
     
     def generate(self, tel: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
         failures = events.loc[events["failure"] == True]
@@ -68,8 +69,10 @@ class OptLinearSingleStepMultiMachine:
                 fails_in_window = np.logical_or(in_window, fails_in_window)
             
             df["fail_window"] = fails_in_window
+            for col in self.COLUMNS:
+                df["std_" + col] = df[col].rolling(window=96).std()
+                df["mean_" + col] = df[col].rolling(window=96).mean()
             return_df = pd.concat([return_df, df])
-
         return return_df
 
 
