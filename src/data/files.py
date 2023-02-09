@@ -7,6 +7,7 @@ EVENTS = "s3://pmpf-data/iot_pmfp_labels.feather"
 TELEMETRY = "s3://pmpf-data/iot_pmfp_data.feather"
 MACHINE_ID = "machineID"
 
+
 class Data:
     @staticmethod
     def read_feather_file_from_s3(s3_url: str) -> pd.DataFrame:

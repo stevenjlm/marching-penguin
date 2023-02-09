@@ -1,9 +1,12 @@
 import pandas as pd
 import copy
 from datetime import timedelta
-from typing import Union
+from typing import Union, Tuple
 import numpy as np
+
 MACHINE_ID = "machineID"
+TRAIN_TEST_SPLIT = timedelta(days=90)
+
 
 class LinearSingleStepSingleMachine:
     DEL_T = timedelta(days=3)
@@ -24,6 +27,7 @@ class LinearSingleStepSingleMachine:
         
         df["fail_window"] = fail_win_values
         return df
+
 
 class LinearSingleStepMultiMachine:
     DEL_T = timedelta(days=3)
@@ -76,13 +80,41 @@ class OptLinearSingleStepMultiMachine:
         return return_df
 
 
+class TimeSplit:
+    
+    def __init__(self):
+        self.train_signal = None
+        self.test_signal = None
+
+    def split(self, signal: pd.DataFrame) -> None:
+        
+        t_max_tele = signal["datetime"].max()
+        t_seperator = t_max_tele - TRAIN_TEST_SPLIT
+        
+        self.train_signal = signal.loc[signal["datetime"] <= t_seperator]
+        self.test_signal = signal.loc[signal["datetime"] > t_seperator]
+
+        return self.train_signal, self.test_signal        
+
+
 class MachineSignalSynth:
     
-    def __init__(self, tel: pd.DataFrame, events: pd.DataFrame, method: Union[LinearSingleStepSingleMachine, LinearSingleStepMultiMachine, OptLinearSingleStepMultiMachine]):
+    def __init__(self,
+                 tel: pd.DataFrame,
+                 events: pd.DataFrame,
+                 method: Union[LinearSingleStepSingleMachine,
+                               LinearSingleStepMultiMachine,
+                               OptLinearSingleStepMultiMachine],
+                 splitter: Union[TimeSplit]=None):
         self.method = method
         self.tel = tel
         self.events = events
+        self.splitter = splitter
         
     def generate(self) -> pd.DataFrame:
         machine_signal = self.method.generate(self.tel, self.events)
         return machine_signal
+    
+    def split_signal(self, signal: pd.DataFrame) -> Tuple[pd.DataFrame]:
+        train_sig, test_sig = self.splitter.split(signal)
+        return train_sig, test_sig
