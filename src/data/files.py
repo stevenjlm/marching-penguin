@@ -1,9 +1,11 @@
 import io
 import boto3
 import pandas as pd
+from typing import Dict
 
 EVENTS = "s3://pmpf-data/iot_pmfp_labels.feather"
 TELEMETRY = "s3://pmpf-data/iot_pmfp_data.feather"
+MACHINE_ID = "machineID"
 
 class Data:
     @staticmethod
@@ -23,3 +25,14 @@ class Data:
     @classmethod
     def get_telemetry(cls) -> pd.DataFrame:
         return cls.read_feather_file_from_s3(TELEMETRY)
+    
+    @staticmethod
+    def pandas_window_sample(df: pd.DataFrame, start: str ="2015-1-1", end: str ="2015-2-1") -> pd.DataFrame:
+        mask = (df['datetime'] > start) & (df['datetime'] <= end)
+        return df.loc[mask]
+    
+    @staticmethod
+    def seperate_by_machine(df: pd.DataFrame) -> Dict:
+        ids = df["machineID"].unique()
+        machine_signals = {machine_id: df.loc[df["machineID"] == machine_id] for machine_id in ids}
+        return machine_signals
