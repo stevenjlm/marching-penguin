@@ -39,8 +39,8 @@ class OptLinearSingleStepMultiMachine(SignalSynthesizerMethod):
             return_df = pd.concat([return_df, df])
         return return_df
     
-    
-class ModelASignal(SignalSynthesizerMethod):
+
+class FailureEventWithinDelT(SignalSynthesizerMethod):
     
     def __init__(self, components: List[str]):
         self.components = components
@@ -52,7 +52,7 @@ class ModelASignal(SignalSynthesizerMethod):
         for machine_id in machine_ids:
             m_signal = self.generate_machine_signal(machine_id, tel, events)
             output_signal = pd.concat([output_signal, m_signal])
-        output_signal = output_signal.sort_values(by="datetime")
+        # output_signal = output_signal.sort_values(by="datetime")
         return output_signal
         
     def generate_machine_signal(self, machine_id: int, tel: pd.DataFrame, events: pd.DataFrame):
@@ -74,7 +74,34 @@ class ModelASignal(SignalSynthesizerMethod):
             machine_tel["fail_window_" + comp] = new_column
             machine_tel["fail_window_" + comp] = machine_tel["fail_window_" + comp].astype(int)
         return machine_tel
-      
+
+
+class AddErrorAndMaintainCols(SignalSynthesizerMethod):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.columns = ["error" + str(i) for i in range(1,6)]
+        self.columns.extend(["maint_comp" + str(i) for i in range(1,5)])
+        return
+
+    def generate(self, raw_signal: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+        new_cols = events[self.columns]
+        raw_signal = raw_signal.join(new_cols)
+        return raw_signal
+
+
+class OneHotColumn(SignalSynthesizerMethod):
+    
+    def __init__(self, col_name: str) -> None:
+        super().__init__()
+        self.col_name = col_name
+        return
+    
+    def generate(self, raw_signal: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+        y = pd.get_dummies(raw_signal[self.col_name])
+        raw_signal = raw_signal.drop(self.col_name,axis = 1)
+        raw_signal = raw_signal.join(y)
+        return raw_signal
 
 
 class MachineSignalSynth:
@@ -82,12 +109,15 @@ class MachineSignalSynth:
     def __init__(self,
                  tel: pd.DataFrame,
                  events: pd.DataFrame,
-                 method: Union[OptLinearSingleStepMultiMachine,
-                               ModelASignal]):
-        self.method = method
+                 methods: List[Union[OptLinearSingleStepMultiMachine,
+                               FailureEventWithinDelT,
+                               OneHotColumn]]):
+        self.methods = methods
         self.tel = tel
         self.events = events
         
     def generate(self) -> pd.DataFrame:
-        machine_signal = self.method.generate(self.tel, self.events)
-        return machine_signal
+        new_signal =  self.tel
+        for method in self.methods:
+            new_signal = method.generate(new_signal, self.events)
+        return new_signal
