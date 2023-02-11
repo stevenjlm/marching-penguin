@@ -1,59 +1,19 @@
 import pandas as pd
 import copy
 from datetime import timedelta
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 import numpy as np
 
 MACHINE_ID = "machineID"
 TRAIN_TEST_SPLIT = timedelta(days=90)
 
 
-class LinearSingleStepSingleMachine:
-    DEL_T = timedelta(days=3)
-    
-    def generate(self, tel: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
-        df = copy.deepcopy(tel)
-        fail_win_values = [False for _ in range(len(df.index))]
-        failures = events.loc[events["failure"] == True]
-        t_failures = failures["datetime"]
-        
-        idx = 0
-        for index, row in df.iterrows():
-            t = row["datetime"]
-            for t_fail in t_failures:
-                if abs(t - t_fail) <= self.DEL_T:
-                    fail_win_values[idx] = True
-            idx += 1
-        
-        df["fail_window"] = fail_win_values
-        return df
-
-
-class LinearSingleStepMultiMachine:
-    DEL_T = timedelta(days=3)
-    
-    def generate(self, tel: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
-        df = copy.deepcopy(tel)
-        fail_win_values = [False for _ in range(len(df.index))]
-        failures = events.loc[events["failure"] == True]
-        
-        idx = 0
-        for index, row in df.iterrows():
-            t = row["datetime"]
-            machine_id = row[MACHINE_ID]
-            t_failures = failures.loc[failures["machineID"] == machine_id]["datetime"]
-            for t_fail in t_failures:
-                if abs(t - t_fail) <= self.DEL_T:
-                    fail_win_values[idx] = True
-            idx += 1
-        
-        df["fail_window"] = fail_win_values
-        return df
-
-
-class OptLinearSingleStepMultiMachine:
+class SignalSynthesizerMethod:
     DEL_T = np.timedelta64(3, 'D')
     COLUMNS = ["volt", "rotate", "vibration", "pressure"]
+
+
+class OptLinearSingleStepMultiMachine(SignalSynthesizerMethod):
     
     def generate(self, tel: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
         failures = events.loc[events["failure"] == True]
@@ -78,23 +38,43 @@ class OptLinearSingleStepMultiMachine:
                 df["mean_" + col] = df[col].rolling(window=96, min_periods=1).mean()
             return_df = pd.concat([return_df, df])
         return return_df
-
-
-class TimeSplit:
     
-    def __init__(self):
-        self.train_signal = None
-        self.test_signal = None
-
-    def split(self, signal: pd.DataFrame) -> None:
+    
+class ModelASignal(SignalSynthesizerMethod):
+    
+    def __init__(self, components: List[str]):
+        self.components = components
+    
+    def generate(self, tel: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+        output_signal = pd.DataFrame()
         
-        t_max_tele = signal["datetime"].max()
-        t_seperator = t_max_tele - TRAIN_TEST_SPLIT
+        machine_ids = tel[MACHINE_ID].unique()
+        for machine_id in machine_ids:
+            m_signal = self.generate_machine_signal(machine_id, tel, events)
+            output_signal = pd.concat([output_signal, m_signal])
+        output_signal = output_signal.sort_values(by="datetime")
+        return output_signal
         
-        self.train_signal = signal.loc[signal["datetime"] <= t_seperator]
-        self.test_signal = signal.loc[signal["datetime"] > t_seperator]
+    def generate_machine_signal(self, machine_id: int, tel: pd.DataFrame, events: pd.DataFrame):
+        machine_tel = copy.deepcopy(tel.loc[tel[MACHINE_ID] == machine_id])
+        for comp in self.components:
+            new_column = np.full((len(machine_tel.index)), False)
+            machine_tel_times = machine_tel["datetime"].to_numpy()
+            
+            machine_events = events.loc[events["machineID"] == machine_id]
+            component_failures = machine_events.loc[machine_events["failure_" + comp] == True]
+            
+            t_failures = component_failures["datetime"]
+            t_failures = t_failures.to_numpy()
+            for t in t_failures:
+                delta_t = t - machine_tel_times
+                in_window = np.logical_and(np.timedelta64(0, 'D') <= delta_t, delta_t <= self.DEL_T)
+                new_column = np.logical_or(in_window, new_column)
 
-        return self.train_signal, self.test_signal        
+            machine_tel["fail_window_" + comp] = new_column
+            machine_tel["fail_window_" + comp] = machine_tel["fail_window_" + comp].astype(int)
+        return machine_tel
+      
 
 
 class MachineSignalSynth:
@@ -102,19 +82,12 @@ class MachineSignalSynth:
     def __init__(self,
                  tel: pd.DataFrame,
                  events: pd.DataFrame,
-                 method: Union[LinearSingleStepSingleMachine,
-                               LinearSingleStepMultiMachine,
-                               OptLinearSingleStepMultiMachine],
-                 splitter: Union[TimeSplit]=None):
+                 method: Union[OptLinearSingleStepMultiMachine,
+                               ModelASignal]):
         self.method = method
         self.tel = tel
         self.events = events
-        self.splitter = splitter
         
     def generate(self) -> pd.DataFrame:
         machine_signal = self.method.generate(self.tel, self.events)
         return machine_signal
-    
-    def split_signal(self, signal: pd.DataFrame) -> Tuple[pd.DataFrame]:
-        train_sig, test_sig = self.splitter.split(signal)
-        return train_sig, test_sig
