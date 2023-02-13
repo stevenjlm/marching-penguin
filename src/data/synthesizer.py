@@ -45,11 +45,12 @@ class OneHotColumn(SignalSynthesizerMethod):
 class ConvolveBoleanColumns(SignalSynthesizerMethod):
     DEFAULT_DELTA_T = 3
 
-    def __init__(self, cols: List[str], in_place: List[bool], delta_ts: List[int] = None) -> None:
+    def __init__(self, cols: List[str], in_place: List[bool], label: str, delta_ts: List[int] = None) -> None:
         super().__init__()
         self.col_names = cols
         self.in_place = in_place
         self.delta_ts = delta_ts
+        self.label = label
 
     def generate(self, raw_signal: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
         """
@@ -63,7 +64,6 @@ class ConvolveBoleanColumns(SignalSynthesizerMethod):
             output_signal = pd.concat([output_signal, machine_signal])
         return output_signal
 
-
     def generate_machine(self, raw_signal: pd.DataFrame) -> pd.DataFrame:
         for idx_col in range(len(self.col_names)):
             col_name = self.col_names[idx_col]
@@ -75,14 +75,17 @@ class ConvolveBoleanColumns(SignalSynthesizerMethod):
 
             numpy_column_values = raw_signal[col_name].to_numpy()
             convolution_filter = np.ones(2 * del_t)
-            convolution_filter[del_t:] = 0
+            if col_name==self.label:
+                convolution_filter[del_t:] = 0
+            else:
+                convolution_filter[:del_t-1] = 0
             column_result = np.convolve(numpy_column_values, convolution_filter, 'same')
 
             if in_place:
                 new = {col_name: column_result}
                 raw_signal = raw_signal.assign(**new)
             else:
-                new = {col_name + "_convolve_" + str(del_t): column_result}
+                new = {col_name + "_in_past_" + str(del_t): column_result}
                 raw_signal = raw_signal.assign(**new)
         return raw_signal
 
